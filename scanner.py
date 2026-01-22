@@ -36,17 +36,17 @@ with suppress(Exception):
 
 
 # ===================== CONFIG (defaults; can be overridden by CLI flags) =====================
-DOMAINS = ["invest.quadient.com", "careers.quadient.com","courrierpro.fr" ]   # domains to include
+DOMAINS = ["example.com" ]   # domains to include
 SCHEMES = ["https"]                                # https first
 
 INPUT_URL_LIST = "all-subdomains-and-domains.csv"                        # one target URL per line
-OUTPUT_CSV = "results_invest_careers_courrierpro.csv"
+OUTPUT_CSV = "outputlist.csv"
 
 MAX_PAGES = 20000          # cap total pages scanned
 CONCURRENCY = 4           # concurrent HTTP requests
 REQUEST_TIMEOUT_SECS = 25
 POLITENESS_DELAY_SECS = 0.2
-USER_AGENT = "Quadient-URL-Scanner/1.0 (+contact: web@quadient.com)"
+USER_AGENT = "URL-Scanner/1.0 (+contact: your@email.com)"
 MAX_MATCH_PAGES_PER_QUERY = 100
 
 # If True, scan raw HTML (finds strings in text and attributes). If False, only scan <a href>s.
@@ -649,3 +649,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nInterrupted by user.")
         sys.exit(1)
+
