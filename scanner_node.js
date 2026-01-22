@@ -10,7 +10,7 @@ const DEFAULT_DOMAINS = ["example.com"];
 const DEFAULT_SCHEMES = ["https"];
 
 const DEFAULT_INPUT_URL_LIST = "domains_and_subdomains_to_search_for.csv";
-const DEFAULT_OUTPUT_CSV = "outputlist.csv";
+const DEFAULT_OUTPUT_CSV = "internallinksearch.csv";
 const DEFAULT_SCANNED_PAGES_CSV = "scanned_pages.csv";
 
 const DEFAULT_MAX_PAGES = 20000;
@@ -553,9 +553,13 @@ async function runScanner(args) {
     await sleep(25);
   }
 
-  writeResults(args.output, inputLines, matches, DEFAULT_MAX_MATCH_PAGES_PER_QUERY);
+  if (!args.ignoreInputs) {
+    writeResults(args.output, inputLines, matches, DEFAULT_MAX_MATCH_PAGES_PER_QUERY);
+    console.log(`Wrote ${args.output}`);
+  } else {
+    console.log("Skipped writing internal link search results because inputs were ignored.");
+  }
   writeScannedPages(DEFAULT_SCANNED_PAGES_CSV, scannedPages);
-  console.log(`Wrote ${args.output}`);
 }
 
 async function main() {
