@@ -68,6 +68,8 @@ node scanner_node.js \
   --domains example.com
 ```
 
+In this mode the crawler still records every successfully fetched page and its size in `scanned_pages.csv`.
+
 ### Test mode
 
 ```bash
@@ -81,6 +83,7 @@ node scanner_node.js \
 The Node.js scanner writes the same output files as the Python scanner:
 
 - `outputlist.csv`
+- `scanned_pages.csv`: list of scanned pages with their byte sizes.
 - `discovered_sitemaps_initial.txt`
 - `discovered_sitemaps_all.txt`
 - `discovered_pages.txt`

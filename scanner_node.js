@@ -11,6 +11,7 @@ const DEFAULT_SCHEMES = ["https"];
 
 const DEFAULT_INPUT_URL_LIST = "domains_and_subdomains_to_search_for.csv";
 const DEFAULT_OUTPUT_CSV = "outputlist.csv";
+const DEFAULT_SCANNED_PAGES_CSV = "scanned_pages.csv";
 
 const DEFAULT_MAX_PAGES = 20000;
 const DEFAULT_CONCURRENCY = 4;
@@ -351,9 +352,9 @@ async function fetchHtml(url, timeoutMs, userAgent, politenessDelaySecs) {
   await sleep(politenessDelaySecs * 1000);
   const { status, body } = await fetchBytes(url, timeoutMs, userAgent);
   if (status !== 200 || !body.length) {
-    return "";
+    return { html: "", sizeBytes: 0 };
   }
-  return body.toString("utf-8");
+  return { html: body.toString("utf-8"), sizeBytes: body.length };
 }
 
 function rebuildInputVariantMap(inputs) {
@@ -399,6 +400,16 @@ function writeResults(outputCsv, inputs, matches, maxMatchPages) {
   fs.writeFileSync(outputCsv, rows.join("\n") + "\n");
 }
 
+function writeScannedPages(outputCsv, scannedPages) {
+  const headers = ["url", "size_bytes"];
+  const rows = [headers.join(",")];
+  for (const page of scannedPages) {
+    const row = [page.url, String(page.sizeBytes)];
+    rows.push(row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","));
+  }
+  fs.writeFileSync(outputCsv, rows.join("\n") + "\n");
+}
+
 async function runTestMode(testUrl, inputs, scanBody, timeoutMs, userAgent) {
   const allPatterns = new Set();
   for (const input of inputs) {
@@ -407,16 +418,16 @@ async function runTestMode(testUrl, inputs, scanBody, timeoutMs, userAgent) {
     }
   }
 
-  const htmlText = await fetchHtml(testUrl, timeoutMs, userAgent, 0);
-  if (!htmlText) {
+  const { html } = await fetchHtml(testUrl, timeoutMs, userAgent, 0);
+  if (!html) {
     console.log(`Test mode: failed to fetch ${testUrl}`);
     return;
   }
 
-  const hrefs = extractHrefs(testUrl, htmlText);
+  const hrefs = extractHrefs(testUrl, html);
   const blobs = [hrefs.join("\n")];
   if (scanBody) {
-    blobs.push(htmlText);
+    blobs.push(html);
   }
   const blob = blobs.join("\n");
 
@@ -480,6 +491,8 @@ async function runScanner(args) {
     matches.set(pattern, new Set());
   }
 
+  const scannedPages = [];
+
   const pages = await gatherPagesFromSitemaps(
     args.domains,
     DEFAULT_SCHEMES,
@@ -497,20 +510,21 @@ async function runScanner(args) {
       if (!sameDomain(url, args.domains) || isBinaryUrl(url)) {
         return;
       }
-      const htmlText = await fetchHtml(
+      const { html, sizeBytes } = await fetchHtml(
         url,
         DEFAULT_REQUEST_TIMEOUT_SECS * 1000,
         DEFAULT_USER_AGENT,
         DEFAULT_POLITENESS_DELAY_SECS,
       );
-      if (!htmlText) {
+      if (!html) {
         return;
       }
 
-      const hrefs = extractHrefs(url, htmlText);
+      scannedPages.push({ url, sizeBytes });
+      const hrefs = extractHrefs(url, html);
       const blobs = [hrefs.join("\n")];
       if (!args.noBody) {
-        blobs.push(htmlText);
+        blobs.push(html);
       }
       const found = matcher.findIn(blobs.join("\n"));
       for (const pattern of found) {
@@ -540,6 +554,7 @@ async function runScanner(args) {
   }
 
   writeResults(args.output, inputLines, matches, DEFAULT_MAX_MATCH_PAGES_PER_QUERY);
+  writeScannedPages(DEFAULT_SCANNED_PAGES_CSV, scannedPages);
   console.log(`Wrote ${args.output}`);
 }
 
