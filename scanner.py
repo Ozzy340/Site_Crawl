@@ -39,7 +39,7 @@ with suppress(Exception):
 DOMAINS = ["example.com" ]   # domains to include
 SCHEMES = ["https"]                                # https first
 
-INPUT_URL_LIST = "all-subdomains-and-domains.csv"                        # one target URL per line
+INPUT_URL_LIST = "domains_and_subdomains_to_search_for.csv"                        # one target URL per line
 OUTPUT_CSV = "outputlist.csv"
 
 MAX_PAGES = 20000          # cap total pages scanned
@@ -649,4 +649,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nInterrupted by user.")
         sys.exit(1)
+
 
