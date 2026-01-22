@@ -504,6 +504,34 @@ async function runScanner(args) {
   const pageList = Array.from(pages).slice(0, args.maxPages);
   const queue = [...pageList];
   const active = new Set();
+  const progress = {
+    completed: 0,
+    lastLogged: 0,
+    total: pageList.length,
+  };
+
+  function renderProgressBar(completed, total) {
+    const safeTotal = Math.max(total, 1);
+    const ratio = Math.min(completed / safeTotal, 1);
+    const percent = Math.round(ratio * 100);
+    const width = 30;
+    const filled = Math.round(width * ratio);
+    const bar = `${"█".repeat(filled)}${"░".repeat(width - filled)}`;
+    const line = `Pages processed: [${bar}] ${percent}% (${completed}/${total})`;
+
+    if (process.stdout.isTTY) {
+      process.stdout.write(`\r${line}`);
+      if (completed >= total) {
+        process.stdout.write("\n");
+      }
+      return;
+    }
+
+    if (completed >= total || completed - progress.lastLogged >= 100) {
+      console.log(line);
+      progress.lastLogged = completed;
+    }
+  }
 
   async function worker(url) {
     try {
@@ -535,10 +563,11 @@ async function runScanner(args) {
       }
     } finally {
       active.delete(url);
+      progress.completed += 1;
+      renderProgressBar(progress.completed, progress.total);
     }
   }
 
-  let processed = 0;
   while (queue.length || active.size) {
     while (queue.length && active.size < args.concurrency) {
       const url = queue.shift();
@@ -546,10 +575,6 @@ async function runScanner(args) {
       worker(url).catch(() => {});
     }
 
-    processed += 1;
-    if (processed % 100 === 0) {
-      console.log(`Pages processed: ${processed}/${pageList.length}`);
-    }
     await sleep(25);
   }
 
