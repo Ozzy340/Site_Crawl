@@ -60,6 +60,16 @@ node scanner_node.js \
   --domains example.com
 ```
 
+### Crawl-only mode (ignore input list)
+
+```bash
+node scanner_node.js \
+  --ignore-inputs \
+  --domains example.com
+```
+
+In this mode the crawler still records every successfully fetched page and its size in `scanned_pages.csv`.
+
 ### Test mode
 
 ```bash
@@ -73,6 +83,7 @@ node scanner_node.js \
 The Node.js scanner writes the same output files as the Python scanner:
 
 - `outputlist.csv`
+- `scanned_pages.csv`: list of scanned pages with their byte sizes.
 - `discovered_sitemaps_initial.txt`
 - `discovered_sitemaps_all.txt`
 - `discovered_pages.txt`
@@ -86,6 +97,7 @@ Both scanners support the following flags:
 - `--input <path>`: input CSV of URL patterns to search for.
 - `--output <path>`: output CSV for match results.
 - `--no-body`: only scan anchor tags instead of raw HTML.
+- `--ignore-inputs`: ignore the input URL list (crawl without searching for any patterns).
 - `--max-pages <n>`: cap the number of pages scanned.
 - `--concurrency <n>`: concurrent requests while scanning pages.
 - `--domains <domain ...>`: one or more domains to include.
