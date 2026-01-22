@@ -1,5 +1,5 @@
 # scanner.py
-# Quadient URL Scanner — sitemap-first, nested sitemap aware, polite, with progress bars + test mode.
+# URL Scanner — sitemap-first, nested sitemap aware, polite, with progress bars + test mode.
 
 import asyncio
 import csv
@@ -579,7 +579,7 @@ async def run_test_mode(test_url: str, inputs: List[str], scan_body: bool):
 # --------------- CLI + main ---------------
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Quadient URL Scanner (sitemap-first) with optional test mode")
+    p = argparse.ArgumentParser(description="URL Scanner (sitemap-first) with optional test mode")
     p.add_argument("--test-url", type=str, default=None,
                    help="Fetch just this URL and check for any input URLs on it (skips sitemap crawl).")
     p.add_argument("--input", type=str, default=INPUT_URL_LIST,
@@ -649,5 +649,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nInterrupted by user.")
         sys.exit(1)
+
 
 
