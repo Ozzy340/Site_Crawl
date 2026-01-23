@@ -46,6 +46,13 @@ const BINARY_EXTS = new Set([
 
 const SITEMAP_CAP = 5000;
 
+function buildTimestampedPath(filename, outputDir, timestamp) {
+  const baseName = path.basename(filename);
+  const ext = path.extname(baseName);
+  const name = baseName.slice(0, Math.max(baseName.length - ext.length, 0));
+  return path.join(outputDir, `${name}_${timestamp}${ext}`);
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -99,10 +106,12 @@ function parseArgs(argv) {
   return args;
 }
 
-function saveListToFile(filename, items) {
+function saveListToFile(filename, items, outputDir, timestamp) {
+  fs.mkdirSync(outputDir, { recursive: true });
+  const outputPath = buildTimestampedPath(filename, outputDir, timestamp);
   const sorted = Array.from(items).sort();
-  fs.writeFileSync(filename, sorted.join("\n") + (sorted.length ? "\n" : ""));
-  console.log(`Saved ${sorted.length} items to ${filename}`);
+  fs.writeFileSync(outputPath, sorted.join("\n") + (sorted.length ? "\n" : ""));
+  console.log(`Saved ${sorted.length} items to ${outputPath}`);
 }
 
 function sameDomain(url, domains) {
@@ -281,12 +290,12 @@ function extractSitemapLocs(xmlText) {
   return { sitemapUrls, pageUrls };
 }
 
-async function gatherPagesFromSitemaps(domains, schemes, timeoutMs, userAgent, maxPages) {
+async function gatherPagesFromSitemaps(domains, schemes, timeoutMs, userAgent, maxPages, outputDir, timestamp) {
   const pages = new Set();
   const candidateSitemaps = await discoverSitemapUrls(domains, schemes, timeoutMs, userAgent);
 
   console.log(`Discovered ${candidateSitemaps.size} candidate sitemap URLs`);
-  saveListToFile("discovered_sitemaps_initial.txt", candidateSitemaps);
+  saveListToFile("discovered_sitemaps_initial.txt", candidateSitemaps, outputDir, timestamp);
 
   const toProcess = Array.from(candidateSitemaps);
   const seen = new Set();
@@ -328,8 +337,8 @@ async function gatherPagesFromSitemaps(domains, schemes, timeoutMs, userAgent, m
   }
 
   console.log(`Processed ${processedCount} sitemap documents; collected ${pages.size} page URLs.`);
-  saveListToFile("discovered_sitemaps_all.txt", seen);
-  saveListToFile("discovered_pages.txt", pages);
+  saveListToFile("discovered_sitemaps_all.txt", seen, outputDir, timestamp);
+  saveListToFile("discovered_pages.txt", pages, outputDir, timestamp);
   return pages;
 }
 
@@ -365,7 +374,7 @@ function rebuildInputVariantMap(inputs) {
   return map;
 }
 
-function writeResults(outputCsv, inputs, matches, maxMatchPages) {
+function writeResults(outputCsv, inputs, matches, maxMatchPages, outputDir, timestamp) {
   const inputVariantMap = rebuildInputVariantMap(inputs);
   const headers = [
     "queried_url",
@@ -397,20 +406,26 @@ function writeResults(outputCsv, inputs, matches, maxMatchPages) {
     rows.push(row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","));
   }
 
-  fs.writeFileSync(outputCsv, rows.join("\n") + "\n");
+  fs.mkdirSync(outputDir, { recursive: true });
+  const outputPath = buildTimestampedPath(outputCsv, outputDir, timestamp);
+  fs.writeFileSync(outputPath, rows.join("\n") + "\n");
+  return outputPath;
 }
 
-function writeScannedPages(outputCsv, scannedPages) {
+function writeScannedPages(outputCsv, scannedPages, outputDir, timestamp) {
   const headers = ["url", "size_bytes"];
   const rows = [headers.join(",")];
   for (const page of scannedPages) {
     const row = [page.url, String(page.sizeBytes)];
     rows.push(row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","));
   }
-  fs.writeFileSync(outputCsv, rows.join("\n") + "\n");
+  fs.mkdirSync(outputDir, { recursive: true });
+  const outputPath = buildTimestampedPath(outputCsv, outputDir, timestamp);
+  fs.writeFileSync(outputPath, rows.join("\n") + "\n");
+  return outputPath;
 }
 
-async function runTestMode(testUrl, inputs, scanBody, timeoutMs, userAgent) {
+async function runTestMode(testUrl, inputs, scanBody, timeoutMs, userAgent, outputDir, timestamp) {
   const allPatterns = new Set();
   for (const input of inputs) {
     for (const variant of normalizeVariants(input)) {
@@ -450,7 +465,9 @@ async function runTestMode(testUrl, inputs, scanBody, timeoutMs, userAgent) {
   for (const row of resultRows) {
     csvLines.push(row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","));
   }
-  fs.writeFileSync("test_results.csv", csvLines.join("\n") + "\n");
+  fs.mkdirSync(outputDir, { recursive: true });
+  const outputPath = buildTimestampedPath("test_results.csv", outputDir, timestamp);
+  fs.writeFileSync(outputPath, csvLines.join("\n") + "\n");
 
   console.log(`Test mode scanned: ${testUrl}`);
   console.log(`Inputs matched: ${matchedInputs.size} out of ${inputs.length}`);
@@ -460,7 +477,7 @@ async function runTestMode(testUrl, inputs, scanBody, timeoutMs, userAgent) {
       .slice(0, 10)
       .forEach((match) => console.log(`  - ${match}`));
   }
-  console.log("Wrote test_results.csv");
+  console.log(`Wrote ${outputPath}`);
 }
 
 async function runScanner(args) {
@@ -473,8 +490,20 @@ async function runScanner(args) {
         .map((line) => line.trim())
         .filter(Boolean);
 
+  const runTimestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "");
+  const outputBaseDir = path.dirname(args.output) || ".";
+  const outputDir = path.join(outputBaseDir, `output_${runTimestamp}`);
+
   if (args.testUrl) {
-    await runTestMode(args.testUrl, inputLines, !args.noBody, DEFAULT_REQUEST_TIMEOUT_SECS * 1000, DEFAULT_USER_AGENT);
+    await runTestMode(
+      args.testUrl,
+      inputLines,
+      !args.noBody,
+      DEFAULT_REQUEST_TIMEOUT_SECS * 1000,
+      DEFAULT_USER_AGENT,
+      outputDir,
+      runTimestamp,
+    );
     return;
   }
 
@@ -499,6 +528,8 @@ async function runScanner(args) {
     DEFAULT_REQUEST_TIMEOUT_SECS * 1000,
     DEFAULT_USER_AGENT,
     args.maxPages,
+    outputDir,
+    runTimestamp,
   );
 
   const pageList = Array.from(pages).slice(0, args.maxPages);
@@ -579,12 +610,20 @@ async function runScanner(args) {
   }
 
   if (!args.ignoreInputs) {
-    writeResults(args.output, inputLines, matches, DEFAULT_MAX_MATCH_PAGES_PER_QUERY);
-    console.log(`Wrote ${args.output}`);
+    const outputPath = writeResults(
+      args.output,
+      inputLines,
+      matches,
+      DEFAULT_MAX_MATCH_PAGES_PER_QUERY,
+      outputDir,
+      runTimestamp,
+    );
+    console.log(`Wrote ${outputPath}`);
   } else {
     console.log("Skipped writing internal link search results because inputs were ignored.");
   }
-  writeScannedPages(DEFAULT_SCANNED_PAGES_CSV, scannedPages);
+  const scannedPagesPath = writeScannedPages(DEFAULT_SCANNED_PAGES_CSV, scannedPages, outputDir, runTimestamp);
+  console.log(`Wrote ${scannedPagesPath}`);
 }
 
 async function main() {
