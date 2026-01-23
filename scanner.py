@@ -8,6 +8,8 @@ import html
 import time
 import urllib.parse
 import argparse
+import os
+from datetime import datetime
 from contextlib import suppress
 from typing import Dict, List, Set, Tuple
 from urllib.parse import urldefrag, urljoin, urlparse, parse_qs
@@ -66,15 +68,23 @@ SITEMAP_CAP = 5000
 
 # --------------- helpers ---------------
 
-def save_list_to_file(filename: str, items: Set[str]):
+def build_timestamped_path(filename: str, output_dir: str, timestamp: str) -> str:
+    base_name = os.path.basename(filename)
+    name, ext = os.path.splitext(base_name)
+    return os.path.join(output_dir, f"{name}_{timestamp}{ext}")
+
+
+def save_list_to_file(filename: str, items: Set[str], output_dir: str, timestamp: str):
     """Write a set of URLs to a text file."""
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = build_timestamped_path(filename, output_dir, timestamp)
     try:
-        with open(filename, "w", encoding="utf-8") as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             for item in sorted(items):
                 f.write(item + "\n")
-        print(f"Saved {len(items)} items to {filename}")
+        print(f"Saved {len(items)} items to {output_path}")
     except Exception as e:
-        print(f"⚠️ Failed to save {filename}: {e}")
+        print(f"⚠️ Failed to save {output_path}: {e}")
 
 def same_domain(url: str, domains: List[str]) -> bool:
     try:
@@ -269,7 +279,12 @@ def parse_sitemap_xml(xml_text: str) -> Tuple[List[str], List[str]]:
 
     return sitemap_urls, page_urls
 
-async def gather_pages_from_sitemaps(session: aiohttp.ClientSession, domains: List[str]) -> Set[str]:
+async def gather_pages_from_sitemaps(
+    session: aiohttp.ClientSession,
+    domains: List[str],
+    output_dir: str,
+    timestamp: str,
+) -> Set[str]:
     pages: Set[str] = set()
 
     # discover initial sitemap URLs
@@ -278,7 +293,7 @@ async def gather_pages_from_sitemaps(session: aiohttp.ClientSession, domains: Li
         candidate_sitemaps |= await discover_sitemap_urls(session, d)
 
     print(f"Discovered {len(candidate_sitemaps)} candidate sitemap URLs")
-    save_list_to_file("discovered_sitemaps_initial.txt", candidate_sitemaps)
+    save_list_to_file("discovered_sitemaps_initial.txt", candidate_sitemaps, output_dir, timestamp)
 
     # BFS through sitemap indexes (no reliance on file extension)
     to_process = list(candidate_sitemaps)
@@ -343,8 +358,8 @@ async def gather_pages_from_sitemaps(session: aiohttp.ClientSession, domains: Li
             pbar.close()
 
     print(f"Processed {processed_count} sitemap documents; collected {len(pages)} page URLs.")
-    save_list_to_file("discovered_sitemaps_all.txt", seen_sitemaps)
-    save_list_to_file("discovered_pages.txt", pages)
+    save_list_to_file("discovered_sitemaps_all.txt", seen_sitemaps, output_dir, timestamp)
+    save_list_to_file("discovered_pages.txt", pages, output_dir, timestamp)
     return pages
 
 
@@ -482,9 +497,17 @@ class SiteScanner:
 def rebuild_input_variant_map(inputs: List[str]) -> Dict[str, Set[str]]:
     return {u: normalize_variants(u) for u in inputs}
 
-def write_results(output_csv: str, inputs: List[str], matches: Dict[str, Set[str]]):
+def write_results(
+    output_csv: str,
+    inputs: List[str],
+    matches: Dict[str, Set[str]],
+    output_dir: str,
+    timestamp: str,
+):
     input_to_variants = rebuild_input_variant_map(inputs)
-    with open(output_csv, "w", newline="", encoding="utf-8") as f:
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = build_timestamped_path(output_csv, output_dir, timestamp)
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         headers = ["queried_url", "found", "match_count"] + \
                   [f"match_page_{i}" for i in range(1, MAX_MATCH_PAGES_PER_QUERY + 1)]
@@ -502,11 +525,18 @@ def write_results(output_csv: str, inputs: List[str], matches: Dict[str, Set[str
                 *page_list,
                 *([""] * (MAX_MATCH_PAGES_PER_QUERY - len(page_list)))
             ])
+    return output_path
 
 
 # --------------- TEST MODE ---------------
 
-async def run_test_mode(test_url: str, inputs: List[str], scan_body: bool):
+async def run_test_mode(
+    test_url: str,
+    inputs: List[str],
+    scan_body: bool,
+    output_dir: str,
+    timestamp: str,
+):
     """
     Fetch a single page and check if any of the input URLs (with variants) appear.
     Writes test_results.csv and prints a summary.
@@ -561,7 +591,9 @@ async def run_test_mode(test_url: str, inputs: List[str], scan_body: bool):
         results_rows.append([original, bool(pages), len(pages), *(list(pages)[:1])])
 
     # Save CSV
-    with open("test_results.csv", "w", newline="", encoding="utf-8") as f:
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = build_timestamped_path("test_results.csv", output_dir, timestamp)
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["queried_url", "found", "match_count", "match_page_1"])
         w.writerows(results_rows)
@@ -573,7 +605,7 @@ async def run_test_mode(test_url: str, inputs: List[str], scan_body: bool):
         print("Example matches (up to 10):")
         for m in preview:
             print("  -", m)
-    print("Wrote test_results.csv")
+    print(f"Wrote {output_path}")
 
 
 # --------------- CLI + main ---------------
@@ -606,13 +638,17 @@ async def main():
     CONCURRENCY = args.concurrency
     DOMAINS = args.domains
 
+    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_base_dir = os.path.dirname(OUTPUT_CSV) or "."
+    output_dir = os.path.join(output_base_dir, f"output_{run_timestamp}")
+
     # Load input URLs
     with open(INPUT_URL_LIST, "r", encoding="utf-8") as f:
         inputs = [line.strip() for line in f if line.strip()]
 
     # --- TEST MODE ---
     if args.test_url:
-        await run_test_mode(args.test_url, inputs, SCAN_HTML_BODY_TOO)
+        await run_test_mode(args.test_url, inputs, SCAN_HTML_BODY_TOO, output_dir, run_timestamp)
         return
 
     # --- FULL CRAWL MODE ---
@@ -627,7 +663,7 @@ async def main():
     try:
         assert scanner.session is not None
         # 1) discover page URLs from sitemaps (recursing through nested indexes)
-        pages = await gather_pages_from_sitemaps(scanner.session, DOMAINS)
+        pages = await gather_pages_from_sitemaps(scanner.session, DOMAINS, output_dir, run_timestamp)
         page_list = list(pages)[:MAX_PAGES]
 
         # 2) scan pages for patterns (progress shown here)
@@ -639,8 +675,8 @@ async def main():
     print(f"Scanned {len(page_list)} pages across {len(DOMAINS)} domains in {elapsed:.1f}s")
 
     # 3) write consolidated results
-    write_results(OUTPUT_CSV, inputs, scanner.matches)
-    print(f"Wrote {OUTPUT_CSV}")
+    output_path = write_results(OUTPUT_CSV, inputs, scanner.matches, output_dir, run_timestamp)
+    print(f"Wrote {output_path}")
 
 
 if __name__ == "__main__":
