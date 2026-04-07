@@ -159,12 +159,17 @@ class Matcher:
     """
     def __init__(self, patterns: Set[str]):
         self.patterns_list = list(patterns)
+        self.patterns_lower = [p.lower() for p in self.patterns_list]
+        self.lower_to_pattern: Dict[str, str] = {}
+        for idx, pat_low in enumerate(self.patterns_lower):
+            # Preserve the first inserted canonical pattern for stable reporting.
+            self.lower_to_pattern.setdefault(pat_low, self.patterns_list[idx])
         self.use_aho = False
         self.aho = None
         if 'ahocorasick' in globals():
             try:
                 automaton = ahocorasick.Automaton()
-                for idx, pat in enumerate(self.patterns_list):
+                for idx, pat in enumerate(self.patterns_lower):
                     automaton.add_word(pat, (idx, pat))
                 automaton.make_automaton()
                 self.aho = automaton
@@ -175,16 +180,17 @@ class Matcher:
     def find_in(self, text: str) -> Set[str]:
         if not text:
             return set()
+        text_lower = text.lower()
         if self.use_aho and self.aho:
             found = set()
-            for _, (idx, pat) in self.aho.iter(text):
-                found.add(self.patterns_list[idx])
+            for _, (_, pat_low) in self.aho.iter(text_lower):
+                found.add(self.lower_to_pattern.get(pat_low, pat_low))
             return found
         # Fallback
         found = set()
-        for p in self.patterns_list:
-            if p in text:
-                found.add(p)
+        for idx, p_low in enumerate(self.patterns_lower):
+            if p_low in text_lower:
+                found.add(self.patterns_list[idx])
         return found
 
 
