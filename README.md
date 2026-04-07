@@ -48,6 +48,7 @@ The Node.js version mirrors the Python workflow and is useful when you want to r
 
 - Sitemap discovery and nested sitemap traversal.
 - Page fetching with concurrency limits and a politeness delay.
+- JavaScript-aware page rendering (via Playwright, when installed) so links injected after initial HTML are included.
 - URL pattern normalization and matching.
 - CSV output compatible with the Python scanner.
 
@@ -59,6 +60,10 @@ node scanner_node.js \
   --output outputlist.csv \
   --domains example.com
 ```
+
+> For JavaScript-rendered pages, install Playwright in this repo (`npm install playwright`).
+> The scanner will automatically use headless Chromium and wait for network idle before extracting links.
+> Use `--no-js-render` to disable this behavior.
 
 ### Crawl-only mode (ignore input list)
 
@@ -97,6 +102,7 @@ Both scanners support the following flags:
 - `--input <path>`: input CSV of URL patterns to search for.
 - `--output <path>`: output CSV for match results.
 - `--no-body`: only scan anchor tags instead of raw HTML.
+- `--no-js-render`: disable JavaScript rendering in the Node.js scanner and use raw HTTP HTML only.
 - `--ignore-inputs`: ignore the input URL list (crawl without searching for any patterns).
 - `--max-pages <n>`: cap the number of pages scanned.
 - `--concurrency <n>`: concurrent requests while scanning pages.

@@ -19,6 +19,8 @@ const DEFAULT_REQUEST_TIMEOUT_SECS = 25;
 const DEFAULT_POLITENESS_DELAY_SECS = 0.2;
 const DEFAULT_USER_AGENT = "URL-Scanner/1.0 (+contact: your@email.com)";
 const DEFAULT_MAX_MATCH_PAGES_PER_QUERY = 100;
+const DEFAULT_JS_RENDER_TIMEOUT_SECS = 20;
+const DEFAULT_JS_WAIT_UNTIL = "networkidle";
 
 const BINARY_EXTS = new Set([
   ".jpg",
@@ -63,6 +65,7 @@ function parseArgs(argv) {
     input: DEFAULT_INPUT_URL_LIST,
     output: DEFAULT_OUTPUT_CSV,
     noBody: false,
+    noJsRender: false,
     ignoreInputs: false,
     maxPages: DEFAULT_MAX_PAGES,
     concurrency: DEFAULT_CONCURRENCY,
@@ -80,6 +83,8 @@ function parseArgs(argv) {
       args.output = tokens.shift() || args.output;
     } else if (token === "--no-body") {
       args.noBody = true;
+    } else if (token === "--no-js-render") {
+      args.noJsRender = true;
     } else if (token === "--ignore-inputs") {
       args.ignoreInputs = true;
     } else if (token === "--max-pages") {
@@ -357,13 +362,62 @@ function extractHrefs(baseUrl, htmlText) {
   return hrefs;
 }
 
-async function fetchHtml(url, timeoutMs, userAgent, politenessDelaySecs) {
+let playwrightLoader;
+async function loadPlaywright() {
+  if (playwrightLoader !== undefined) {
+    return playwrightLoader;
+  }
+  try {
+    // eslint-disable-next-line global-require, import/no-extraneous-dependencies
+    const playwright = require("playwright");
+    playwrightLoader = playwright;
+    return playwrightLoader;
+  } catch (error) {
+    playwrightLoader = null;
+    return playwrightLoader;
+  }
+}
+
+async function fetchRenderedHtml(url, timeoutMs, userAgent, politenessDelaySecs) {
+  await sleep(politenessDelaySecs * 1000);
+  const playwright = await loadPlaywright();
+  if (!playwright || !playwright.chromium) {
+    return { html: "", sizeBytes: 0, usedJsRender: false };
+  }
+
+  let browser;
+  try {
+    browser = await playwright.chromium.launch({ headless: true });
+    const context = await browser.newContext({ userAgent });
+    const page = await context.newPage();
+    const gotoTimeout = Math.min(timeoutMs, DEFAULT_JS_RENDER_TIMEOUT_SECS * 1000);
+    await page.goto(url, { waitUntil: DEFAULT_JS_WAIT_UNTIL, timeout: gotoTimeout });
+    await page.waitForTimeout(500);
+    const html = await page.content();
+    return { html, sizeBytes: Buffer.byteLength(html, "utf-8"), usedJsRender: true };
+  } catch (error) {
+    return { html: "", sizeBytes: 0, usedJsRender: false };
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+async function fetchHtml(url, timeoutMs, userAgent, politenessDelaySecs, enableJsRender) {
+  if (enableJsRender) {
+    const rendered = await fetchRenderedHtml(url, timeoutMs, userAgent, politenessDelaySecs);
+    if (rendered.html) {
+      return rendered;
+    }
+  }
+
   await sleep(politenessDelaySecs * 1000);
   const { status, body } = await fetchBytes(url, timeoutMs, userAgent);
   if (status !== 200 || !body.length) {
-    return { html: "", sizeBytes: 0 };
+    return { html: "", sizeBytes: 0, usedJsRender: false };
   }
-  return { html: body.toString("utf-8"), sizeBytes: body.length };
+  return { html: body.toString("utf-8"), sizeBytes: body.length, usedJsRender: false };
 }
 
 function rebuildInputVariantMap(inputs) {
@@ -425,7 +479,7 @@ function writeScannedPages(outputCsv, scannedPages, outputDir, timestamp) {
   return outputPath;
 }
 
-async function runTestMode(testUrl, inputs, scanBody, timeoutMs, userAgent, outputDir, timestamp) {
+async function runTestMode(testUrl, inputs, scanBody, timeoutMs, userAgent, outputDir, timestamp, enableJsRender) {
   const allPatterns = new Set();
   for (const input of inputs) {
     for (const variant of normalizeVariants(input)) {
@@ -433,7 +487,7 @@ async function runTestMode(testUrl, inputs, scanBody, timeoutMs, userAgent, outp
     }
   }
 
-  const { html } = await fetchHtml(testUrl, timeoutMs, userAgent, 0);
+  const { html } = await fetchHtml(testUrl, timeoutMs, userAgent, 0, enableJsRender);
   if (!html) {
     console.log(`Test mode: failed to fetch ${testUrl}`);
     return;
@@ -481,6 +535,7 @@ async function runTestMode(testUrl, inputs, scanBody, timeoutMs, userAgent, outp
 }
 
 async function runScanner(args) {
+  let warnedAboutJsRendering = false;
   const inputPath = path.resolve(args.input);
   const inputLines = args.ignoreInputs
     ? []
@@ -503,6 +558,7 @@ async function runScanner(args) {
       DEFAULT_USER_AGENT,
       outputDir,
       runTimestamp,
+      !args.noJsRender,
     );
     return;
   }
@@ -574,9 +630,16 @@ async function runScanner(args) {
         DEFAULT_REQUEST_TIMEOUT_SECS * 1000,
         DEFAULT_USER_AGENT,
         DEFAULT_POLITENESS_DELAY_SECS,
+        !args.noJsRender,
       );
       if (!html) {
         return;
+      }
+      if (!args.noJsRender && !warnedAboutJsRendering && !(await loadPlaywright())) {
+        console.log(
+          "⚠️ Playwright is not installed, so pages are fetched without JavaScript rendering. Install `playwright` to enable full JS-rendered scans.",
+        );
+        warnedAboutJsRendering = true;
       }
 
       scannedPages.push({ url, sizeBytes });
@@ -628,6 +691,9 @@ async function runScanner(args) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.noJsRender) {
+    console.log("JavaScript rendering disabled via --no-js-render.");
+  }
   await runScanner(args);
 }
 
