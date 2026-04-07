@@ -200,16 +200,18 @@ function normalizeVariants(target) {
 class Matcher {
   constructor(patterns) {
     this.patterns = Array.from(patterns);
+    this.patternsLower = this.patterns.map((pattern) => pattern.toLowerCase());
   }
 
   findIn(text) {
     if (!text) {
       return new Set();
     }
+    const textLower = text.toLowerCase();
     const found = new Set();
-    for (const pattern of this.patterns) {
-      if (text.includes(pattern)) {
-        found.add(pattern);
+    for (let i = 0; i < this.patterns.length; i += 1) {
+      if (textLower.includes(this.patternsLower[i])) {
+        found.add(this.patterns[i]);
       }
     }
     return found;
